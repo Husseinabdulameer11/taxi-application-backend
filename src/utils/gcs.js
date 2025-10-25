@@ -8,8 +8,12 @@ const BUCKET_NAME = process.env.GCLOUD_BUCKET || process.env.GCLOUD_STORAGE_BUCK
 // Support credentials from env var (for Render.com, etc.) or fallback to keyFilename
 let storage;
 if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-  // Parse the JSON from the environment variable
-  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  // Parse the JSON from the environment variable and fix private_key newlines
+  const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+  const credentials = JSON.parse(raw);
+  if (credentials.private_key) {
+    credentials.private_key = credentials.private_key.replace(/\\n/g, '\n');
+  }
   storage = new Storage({ credentials });
 } else {
   // Fallback to keyFilename (local dev)
