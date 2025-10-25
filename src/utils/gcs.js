@@ -1,13 +1,22 @@
+
 const path = require('path');
 const { Storage } = require('@google-cloud/storage');
 
 // Prefer environment variable for bucket name
 const BUCKET_NAME = process.env.GCLOUD_BUCKET || process.env.GCLOUD_STORAGE_BUCKET;
 
-// Default key file path (project root). You can set GOOGLE_APPLICATION_CREDENTIALS env var instead.
-const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS || path.join(__dirname, '../../taxi-application-476120-279f16f00a23.json');
+// Support credentials from env var (for Render.com, etc.) or fallback to keyFilename
+let storage;
+if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+  // Parse the JSON from the environment variable
+  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+  storage = new Storage({ credentials });
+} else {
+  // Fallback to keyFilename (local dev)
+  const keyFile = process.env.GOOGLE_APPLICATION_CREDENTIALS || path.join(__dirname, '../../taxi-application-476120-279f16f00a23.json');
+  storage = new Storage({ keyFilename: keyFile });
+}
 
-const storage = new Storage({ keyFilename: keyFile });
 
 function getBucket() {
   if (!BUCKET_NAME) throw new Error('GCS bucket name not configured. Set GCLOUD_BUCKET env var.');
