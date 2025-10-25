@@ -9,8 +9,29 @@ const { sendMail } = require('../utils/email');
 router.post('/', auth, async (req, res) => {
   try {
     if (req.user.role !== 'rider') return res.status(403).json({ error: 'Only riders can create rides' });
-    const { pickupAddress, pickupLocation, destinationAddress, destinationLocation, phone } = req.body;
-    const ride = new Ride({ rider: req.user._id, pickupAddress, pickupLocation, destinationAddress, destinationLocation, phone });
+    const {
+      pickupAddress,
+      pickupLocation,
+      destinationAddress,
+      destinationLocation,
+      phone,
+      passengerCount,
+      needsBabySeat,
+      needsHandicapSupport,
+      needsBlindSupport
+    } = req.body;
+    const ride = new Ride({
+      rider: req.user._id,
+      pickupAddress,
+      pickupLocation,
+      destinationAddress,
+      destinationLocation,
+      phone,
+      passengerCount,
+      needsBabySeat,
+      needsHandicapSupport,
+      needsBlindSupport
+    });
     await ride.save();
     res.json({ ride });
   } catch (err) {
