@@ -44,9 +44,12 @@ app.get('/api/drivers/nearby', (req, res) => {
   res.json(nearby);
 });
 
+
 // In-memory stores (for demo/testing). For production, use a DB or Redis.
 const driverLocations = {}; // { driverId: { latitude, longitude, updatedAt } }
 const activeRides = {}; // { rideId: { driverId, riderId, status } }
+const onlineDrivers = new Set(); // Track currently logged-in (connected) drivers
+const driverSocketMap = {}; // Map driverId -> socket.id
 
 function getDistanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371; // km
@@ -60,11 +63,23 @@ function getDistanceKm(lat1, lon1, lat2, lon2) {
 io.on('connection', (socket) => {
   console.log('socket connected', socket.id);
 
+
+  // Driver must identify themselves as online
+  socket.on('driverOnline', (payload) => {
+    // payload: { driverId }
+    const { driverId } = payload || {};
+    if (!driverId) return;
+    onlineDrivers.add(driverId);
+    driverSocketMap[driverId] = socket.id;
+    console.log(`Driver online: ${driverId}`);
+  });
+
   // Driver sends periodic location updates
   socket.on('driverLocationUpdate', (payload) => {
     // payload: { driverId, latitude, longitude }
     const { driverId, latitude, longitude } = payload || {};
     if (!driverId || !latitude || !longitude) return;
+    if (!onlineDrivers.has(driverId)) return; // Only allow if driver is online
     driverLocations[driverId] = { latitude, longitude, updatedAt: Date.now() };
     console.log(`driverLocationUpdate: ${driverId} -> ${latitude},${longitude}`);
 
@@ -76,8 +91,6 @@ io.on('connection', (socket) => {
         io.to(`ride_${rideId}`).emit('carLocationUpdate', { driverId, latitude, longitude });
       }
     }
-
-    // Note: we don't broadcast all drivers globally. Riders should request nearby drivers.
   });
 
   // Rider requests nearby drivers within radiusKm
@@ -87,6 +100,7 @@ io.on('connection', (socket) => {
     if (!latitude || !longitude) return;
     const nearby = {};
     for (const [driverId, loc] of Object.entries(driverLocations)) {
+      if (!onlineDrivers.has(driverId)) continue; // Only show online drivers
       const dist = getDistanceKm(latitude, longitude, loc.latitude, loc.longitude);
       if (dist <= radiusKm) nearby[driverId] = { latitude: loc.latitude, longitude: loc.longitude, distanceKm: dist };
     }
@@ -125,7 +139,15 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    // No-op for now
+    // Remove driver from onlineDrivers and driverLocations if present
+    for (const [driverId, sockId] of Object.entries(driverSocketMap)) {
+      if (sockId === socket.id) {
+        onlineDrivers.delete(driverId);
+        delete driverLocations[driverId];
+        delete driverSocketMap[driverId];
+        console.log(`Driver offline: ${driverId}`);
+      }
+    }
   });
 });
 
