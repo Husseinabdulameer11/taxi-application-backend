@@ -15,8 +15,12 @@ const rideSchema = new Schema({
   },
   phone: { type: String },
   status: { type: String, enum: ['open', 'accepted', 'completed', 'cancelled'], default: 'open' },
-  assignedDriver: { type: Schema.Types.ObjectId, ref: 'User' }
-  ,declinedDrivers: [{ type: Schema.Types.ObjectId, ref: 'User' }]
+  assignedDriver: { type: Schema.Types.ObjectId, ref: 'User' },
+  declinedDrivers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+  passengerCount: { type: Number, default: 1 },
+  needsBabySeat: { type: Boolean, default: false },
+  needsHandicapSupport: { type: Boolean, default: false },
+  needsBlindSupport: { type: Boolean, default: false }
 }, { timestamps: true });
 
 rideSchema.index({ pickupLocation: '2dsphere' });
