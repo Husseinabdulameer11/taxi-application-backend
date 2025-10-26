@@ -14,7 +14,7 @@ const rideSchema = new Schema({
     coordinates: { type: [Number], required: true }
   },
   phone: { type: String },
-  status: { type: String, enum: ['open', 'accepted', 'completed', 'cancelled'], default: 'open' },
+  status: { type: String, enum: ['open', 'pending', 'accepted', 'in_progress', 'completed', 'cancelled'], default: 'open' },
   assignedDriver: { type: Schema.Types.ObjectId, ref: 'User' },
   declinedDrivers: [{ type: Schema.Types.ObjectId, ref: 'User' }],
   passengerCount: { type: Number, default: 1 },
@@ -22,9 +22,10 @@ const rideSchema = new Schema({
   needsHandicapSupport: { type: Boolean, default: false },
   needsBlindSupport: { type: Boolean, default: false }
   ,
+  // Payment fields
   paymentStatus: { type: String, enum: ['pending', 'paid', 'failed'], default: 'pending' },
   stripePaymentIntentId: { type: String },
-  amount: { type: Number }, 
+  amount: { type: Number }, // amount in smallest currency unit (e.g., øre/cents)
   currency: { type: String, default: 'nok' },
   transactionId: { type: String }
 }, { timestamps: true });
