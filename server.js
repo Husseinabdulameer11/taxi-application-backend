@@ -7,14 +7,16 @@ const bodyParser = require('body-parser');
 const authRoutes = require('./src/routes/auth');
 const rideRoutes = require('./src/routes/rides');
 const userRoutes = require('./src/routes/users');
+const paymentRoutes = require('./src/routes/payments');
 
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
+const Stripe = require('stripe');
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 const PORT = process.env.PORT || 4000;
 
-// Create HTTP server and attach Socket.IO
 const http = require('http');
 const server = http.createServer(app);
 const { Server } = require('socket.io');
@@ -27,10 +29,10 @@ mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopol
 app.use('/api/auth', authRoutes);
 app.use('/api/rides', rideRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/payment', paymentRoutes);
 
 app.get('/', (req, res) => res.send({ ok: true }));
 
-// Optional REST endpoint to get nearby drivers (useful for quick testing)
 app.get('/api/drivers/nearby', (req, res) => {
   const lat = parseFloat(req.query.lat);
   const lon = parseFloat(req.query.lon);
@@ -45,14 +47,14 @@ app.get('/api/drivers/nearby', (req, res) => {
 });
 
 
-// In-memory stores (for demo/testing). For production, use a DB or Redis.
-const driverLocations = {}; // { driverId: { latitude, longitude, updatedAt } }
-const activeRides = {}; // { rideId: { driverId, riderId, status } }
-const onlineDrivers = new Set(); // Track currently logged-in (connected) drivers
-const driverSocketMap = {}; // Map driverId -> socket.id
+
+const driverLocations = {}; 
+const activeRides = {}; 
+const onlineDrivers = new Set(); 
+const driverSocketMap = {};
 
 function getDistanceKm(lat1, lon1, lat2, lon2) {
-  const R = 6371; // km
+  const R = 6371; 
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * Math.sin(dLon/2) * Math.sin(dLon/2);
@@ -64,9 +66,8 @@ io.on('connection', (socket) => {
   console.log('socket connected', socket.id);
 
 
-  // Driver must identify themselves as online
+  
   socket.on('driverOnline', (payload) => {
-    // payload: { driverId }
     const { driverId } = payload || {};
     if (!driverId) return;
     onlineDrivers.add(driverId);
@@ -74,60 +75,60 @@ io.on('connection', (socket) => {
     console.log(`Driver online: ${driverId}`);
   });
 
-  // Driver sends periodic location updates
+
   socket.on('driverLocationUpdate', (payload) => {
-    // payload: { driverId, latitude, longitude }
+    
     const { driverId, latitude, longitude } = payload || {};
     if (!driverId || !latitude || !longitude) return;
     if (!onlineDrivers.has(driverId)) return; // Only allow if driver is online
     driverLocations[driverId] = { latitude, longitude, updatedAt: Date.now() };
     console.log(`driverLocationUpdate: ${driverId} -> ${latitude},${longitude}`);
 
-    // If the driver has an active ride, notify the rider room
+   
     for (const rideId in activeRides) {
       const ride = activeRides[rideId];
       if (ride.driverId === driverId && ride.status === 'in_progress') {
-        // send to the rider's socket room for this ride
+     
         io.to(`ride_${rideId}`).emit('carLocationUpdate', { driverId, latitude, longitude });
       }
     }
   });
 
-  // Rider requests nearby drivers within radiusKm
+
   socket.on('requestNearbyDrivers', (payload) => {
-    // payload: { latitude, longitude, radiusKm }
+    
     const { latitude, longitude, radiusKm = 5 } = payload || {};
     if (!latitude || !longitude) return;
     const nearby = {};
     for (const [driverId, loc] of Object.entries(driverLocations)) {
-      if (!onlineDrivers.has(driverId)) continue; // Only show online drivers
+      if (!onlineDrivers.has(driverId)) continue; 
       const dist = getDistanceKm(latitude, longitude, loc.latitude, loc.longitude);
       if (dist <= radiusKm) nearby[driverId] = { latitude: loc.latitude, longitude: loc.longitude, distanceKm: dist };
     }
-    // Send only to the requesting socket
+   
     socket.emit('driversUpdate', nearby);
   });
 
-  // Rider joins ride room to receive car location updates for a specific ride
+  
   socket.on('joinRide', (payload) => {
-    // payload: { rideId }
+    
     const { rideId } = payload || {};
     if (!rideId) return;
     socket.join(`ride_${rideId}`);
-    // Optionally send current driver location
+    
     const ride = activeRides[rideId];
     if (ride && driverLocations[ride.driverId]) {
       socket.emit('carLocationUpdate', { driverId: ride.driverId, ...driverLocations[ride.driverId] });
     }
   });
 
-  // Start a ride (booking completed)
+  
   socket.on('startRide', (payload) => {
-    // payload: { rideId, driverId, riderId }
+    
     const { rideId, driverId, riderId } = payload || {};
     if (!rideId || !driverId || !riderId) return;
     activeRides[rideId] = { driverId, riderId, status: 'in_progress' };
-    // Optionally notify the rider and driver
+    
     io.to(`ride_${rideId}`).emit('rideStarted', { rideId, driverId, riderId });
   });
 
@@ -139,7 +140,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    // Remove driver from onlineDrivers and driverLocations if present
+    
     for (const [driverId, sockId] of Object.entries(driverSocketMap)) {
       if (sockId === socket.id) {
         onlineDrivers.delete(driverId);
@@ -151,9 +152,52 @@ io.on('connection', (socket) => {
   });
 });
 
-// Debug endpoint to inspect in-memory driver locations
+
 app.get('/api/debug/driverLocations', (req, res) => {
   res.json(driverLocations);
+});
+
+
+app.post('/webhook', bodyParser.raw({ type: 'application/json' }), (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('⚠️  Webhook signature verification failed.', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  
+  switch (event.type) {
+    case 'payment_intent.succeeded':
+      
+      (async () => {
+        try {
+          const pi = event.data.object;
+          const rideId = pi.metadata && pi.metadata.rideId;
+          if (rideId) {
+            const Ride = require('./src/models/Ride');
+            const ride = await Ride.findById(rideId);
+            if (ride) {
+              ride.paymentStatus = 'paid';
+              ride.transactionId = pi.id;
+              await ride.save();
+              console.log(`Ride ${rideId} marked as paid (pi ${pi.id})`);
+            }
+          }
+        } catch (e) {
+          console.error('Error handling payment_intent.succeeded webhook', e);
+        }
+      })();
+      break;
+    case 'payment_intent.payment_failed':
+      break;
+    default:
+      console.log(`Unhandled event type ${event.type}`);
+  }
+
+  res.json({ received: true });
 });
 
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
