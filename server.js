@@ -80,13 +80,22 @@ io.on('connection', (socket) => {
   // Driver must identify themselves as online
   socket.on('driverOnline', (payload) => {
     // payload: { driverId }
-    const { driverId } = payload || {};
+    const { driverId, latitude, longitude } = payload || {};
     if (!driverId) return;
     onlineDrivers.add(driverId);
     driverSocketMap[driverId] = socket.id;
     console.log(`Driver online: ${driverId}`);
-    // If we already have a last-known location for this driver, broadcast it to riders immediately
-    if (driverLocations[driverId]) {
+    // If the driver included a location in the driverOnline payload, store & broadcast it immediately
+    if (latitude != null && longitude != null) {
+      driverLocations[driverId] = { latitude, longitude, updatedAt: Date.now() };
+      try {
+        io.emit('driversUpdate', { [driverId]: { latitude: latitude, longitude: longitude } });
+        console.log(`Received location with driverOnline and broadcasted for driver ${driverId}: ${latitude},${longitude}`);
+      } catch (e) {
+        console.error('Error broadcasting driver location from driverOnline', e);
+      }
+    } else if (driverLocations[driverId]) {
+      // Otherwise if we already have a last-known location for this driver, broadcast it to riders immediately
       try {
         const loc = driverLocations[driverId];
         io.emit('driversUpdate', { [driverId]: { latitude: loc.latitude, longitude: loc.longitude } });
