@@ -21,6 +21,12 @@ const rideSchema = new Schema({
   needsBabySeat: { type: Boolean, default: false },
   needsHandicapSupport: { type: Boolean, default: false },
   needsBlindSupport: { type: Boolean, default: false }
+  ,
+  paymentStatus: { type: String, enum: ['pending', 'paid', 'failed'], default: 'pending' },
+  stripePaymentIntentId: { type: String },
+  amount: { type: Number }, 
+  currency: { type: String, default: 'nok' },
+  transactionId: { type: String }
 }, { timestamps: true });
 
 rideSchema.index({ pickupLocation: '2dsphere' });
