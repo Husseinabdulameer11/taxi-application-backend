@@ -85,16 +85,37 @@ io.on('connection', (socket) => {
     onlineDrivers.add(driverId);
     driverSocketMap[driverId] = socket.id;
     console.log(`Driver online: ${driverId}`);
+    // If we already have a last-known location for this driver, broadcast it to riders immediately
+    if (driverLocations[driverId]) {
+      try {
+        const loc = driverLocations[driverId];
+        io.emit('driversUpdate', { [driverId]: { latitude: loc.latitude, longitude: loc.longitude } });
+        console.log(`Broadcasting existing location for driver ${driverId} to riders`);
+      } catch (e) {
+        console.error('Error broadcasting driver existing location', e);
+      }
+    }
   });
 
   // Driver sends periodic location updates
   socket.on('driverLocationUpdate', (payload) => {
     // payload: { driverId, latitude, longitude }
     const { driverId, latitude, longitude } = payload || {};
-    if (!driverId || !latitude || !longitude) return;
+    // Allow latitude/longitude = 0, so check for null/undefined instead of falsy
+    if (!driverId || latitude == null || longitude == null) {
+      console.log('driverLocationUpdate: missing fields', payload);
+      return;
+    }
     if (!onlineDrivers.has(driverId)) return; // Only allow if driver is online
     driverLocations[driverId] = { latitude, longitude, updatedAt: Date.now() };
     console.log(`driverLocationUpdate: ${driverId} -> ${latitude},${longitude}`);
+
+    // Broadcast this single driver's updated position to all connected sockets (riders will pick it up)
+    try {
+      io.emit('driversUpdate', { [driverId]: { latitude: latitude, longitude: longitude } });
+    } catch (e) {
+      console.error('Error emitting driversUpdate for driverLocationUpdate', e);
+    }
 
     // If the driver has an active ride, notify the rider room
     for (const rideId in activeRides) {
@@ -117,6 +138,7 @@ io.on('connection', (socket) => {
       const dist = getDistanceKm(latitude, longitude, loc.latitude, loc.longitude);
       if (dist <= radiusKm) nearby[driverId] = { latitude: loc.latitude, longitude: loc.longitude, distanceKm: dist };
     }
+    console.log(`requestNearbyDrivers: from socket=${socket.id} at ${latitude},${longitude} found ${Object.keys(nearby).length} drivers`);
     // Send only to the requesting socket
     socket.emit('driversUpdate', nearby);
   });
