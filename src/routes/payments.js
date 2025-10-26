@@ -8,8 +8,10 @@ const auth = require('../middleware/auth');
 // Create a PaymentIntent for a ride. Expects { rideId, amount, currency }
 router.post('/create-intent', auth, async (req, res) => {
   try {
-    const { rideId, amount, currency = 'nok' } = req.body;
-    if (!rideId || !amount) return res.status(400).json({ error: 'rideId and amount are required' });
+  const { rideId, currency = 'nok' } = req.body;
+  // Set fixed price: 1000 (e.g., 10 NOK in cents)
+  const amount = 1000;
+  if (!rideId) return res.status(400).json({ error: 'rideId is required' });
 
     const ride = await Ride.findById(rideId);
     if (!ride) return res.status(404).json({ error: 'Ride not found' });
