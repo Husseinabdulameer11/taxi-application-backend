@@ -121,4 +121,110 @@ router.post('/:id/decline', auth, async (req, res) => {
   }
 });
 
+// Rider books a specific driver directly. Creates a ride and assigns the driver.
+router.post('/book-driver', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'rider') return res.status(403).json({ error: 'Only riders can book drivers' });
+    const {
+      driverId,
+      pickupAddress,
+      pickupLocation,
+      destinationAddress,
+      destinationLocation,
+      phone,
+      passengerCount,
+      needsBabySeat,
+      needsHandicapSupport,
+      needsBlindSupport
+    } = req.body;
+
+    if (!driverId) return res.status(400).json({ error: 'driverId is required' });
+
+    const ride = new Ride({
+      rider: req.user._id,
+      pickupAddress,
+      pickupLocation,
+      destinationAddress,
+      destinationLocation,
+      phone,
+      passengerCount,
+      needsBabySeat,
+      needsHandicapSupport,
+      needsBlindSupport,
+      assignedDriver: driverId,
+      status: 'pending' // pending until driver accepts/declines
+    });
+    await ride.save();
+
+    // Notify the rider via email about booking request (we'll update once driver accepts)
+    try {
+      const rider = await User.findById(ride.rider);
+      if (rider && rider.email) {
+        const driver = await User.findById(driverId);
+        const driverInfo = `${driver?.name || 'Driver'} - ${driver?.phone || 'No phone'}`;
+        const rideUrl = `${process.env.FRONTEND_URL}/ride/${ride._id}`;
+        await sendMail({
+          to: rider.email,
+          subject: 'Your driver has been booked',
+          html: `<p>Your ride has been booked with ${driverInfo}.</p><p>View details: <a href="${rideUrl}">Open ride</a></p>`
+        });
+      }
+    } catch (mailErr) {
+      console.error('Failed to send booking email:', mailErr);
+    }
+
+    // Emit a rideRequest socket event to the driver if they're online
+    try {
+      const io = req.app.get('io');
+      const driverSocketMap = req.app.get('driverSocketMap');
+      const driverSock = driverSocketMap && driverSocketMap[driverId];
+      const riderPublic = await User.findById(ride.rider).select('name email avatarUrl');
+      const payload = {
+        rideId: ride._id,
+        rider: { id: riderPublic?._id, name: riderPublic?.name, email: riderPublic?.email, avatarUrl: riderPublic?.avatarUrl },
+        pickupAddress: ride.pickupAddress,
+        pickupLocation: ride.pickupLocation,
+        passengerCount: ride.passengerCount,
+        needsBabySeat: ride.needsBabySeat,
+        needsHandicapSupport: ride.needsHandicapSupport,
+        needsBlindSupport: ride.needsBlindSupport
+      };
+      if (io && driverSock) {
+        io.to(driverSock).emit('rideRequest', payload);
+      }
+
+      // Start a 30s timer; if driver doesn't accept/decline, mark as open and remove assigned driver
+      setTimeout(async () => {
+        try {
+          const fresh = await Ride.findById(ride._id);
+          if (fresh && fresh.status === 'pending') {
+            // mark as open again and add driver to declinedDrivers
+            fresh.status = 'open';
+            if (!fresh.declinedDrivers) fresh.declinedDrivers = [];
+            if (!fresh.declinedDrivers.find(d => d.toString() === driverId.toString())) {
+              fresh.declinedDrivers.push(driverId);
+            }
+            fresh.assignedDriver = null;
+            await fresh.save();
+            // notify rider and driver about timeout/decline
+            if (io && driverSock) {
+              io.to(driverSock).emit('rideRequestTimeout', { rideId: fresh._id });
+            }
+            // Notify rider via socket room if connected
+            io.to(`ride_${fresh._id}`).emit('rideDeclined', { rideId: fresh._id, driverId: driverId });
+          }
+        } catch (timeoutErr) {
+          console.error('Error handling ride request timeout', timeoutErr);
+        }
+      }, 30000);
+    } catch (emitErr) {
+      console.error('Error emitting rideRequest', emitErr);
+    }
+
+    res.json({ ride });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
