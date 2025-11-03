@@ -106,6 +106,16 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Driver explicitly goes offline (logout)
+  socket.on('driverOffline', (payload) => {
+    const { driverId } = payload || {};
+    if (!driverId) return;
+    console.log(`Driver explicitly went offline: ${driverId}`);
+    onlineDrivers.delete(driverId);
+    delete driverLocations[driverId];
+    delete driverSocketMap[driverId];
+  });
+
   // Driver sends periodic location updates
   socket.on('driverLocationUpdate', (payload) => {
     // payload: { driverId, latitude, longitude }
