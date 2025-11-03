@@ -3,6 +3,38 @@ const router = express.Router();
 const Car = require('../models/Car');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
+const multer = require('multer');
+const { uploadBuffer } = require('../utils/gcs');
+
+// Multer memory storage for car image uploads
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }); // 5MB limit
+
+// Upload car image
+router.post('/upload', auth, upload.single('file'), async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') {
+      return res.status(403).json({ error: 'Only drivers can upload car images' });
+    }
+    
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: 'No file uploaded' });
+    
+    // Generate unique filename for the car image
+    const timestamp = Date.now();
+    const ext = file.mimetype.split('/')[1] || 'jpg';
+    const dest = `cars/${req.user._id}_${timestamp}.${ext}`;
+    
+    // Upload to Google Cloud Storage
+    const publicUrl = await uploadBuffer(file.buffer, dest, file.mimetype);
+    
+    console.log(`Driver ${req.user._id} uploaded car image: ${publicUrl}`);
+    res.json({ url: publicUrl });
+  } catch (err) {
+    console.error('car image upload error', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // Get all cars for the authenticated driver
 router.get('/', auth, async (req, res) => {
