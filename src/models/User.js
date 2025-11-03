@@ -12,7 +12,16 @@ const userSchema = new Schema({
   location: {
     type: { type: String, enum: ['Point'], default: 'Point' },
     coordinates: { type: [Number], default: [0, 0] } // [lng, lat]
-  }
+  },
+  // Driver-specific fields
+  carType: { 
+    type: String, 
+    enum: ['standard', 'comfort', 'xl', 'premium'], 
+    default: 'standard' 
+  },
+  carModel: { type: String },
+  carColor: { type: String },
+  licensePlate: { type: String }
 }, { timestamps: true });
 
 userSchema.index({ location: '2dsphere' });
