@@ -4,6 +4,19 @@ const Ride = require('../models/Ride');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
 const { sendMail } = require('../utils/email');
+const { calculateRidePrice } = require('../utils/pricing');
+
+// Helper function to calculate distance between two coordinates
+function getDistanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371; // km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLon = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(dLat/2) * Math.sin(dLat/2) + 
+            Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) * 
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  return R * c;
+}
 
 // Create a ride (rider creates)
 router.post('/', auth, async (req, res) => {
@@ -140,6 +153,37 @@ router.post('/book-driver', auth, async (req, res) => {
 
     if (!driverId) return res.status(400).json({ error: 'driverId is required' });
 
+    // Fetch driver to get car type
+    const driver = await User.findById(driverId);
+    if (!driver || driver.role !== 'driver') {
+      return res.status(400).json({ error: 'Invalid driver' });
+    }
+
+    // Calculate distance and price
+    let distanceKm = 0;
+    let pricing = null;
+    
+    if (pickupLocation && pickupLocation.coordinates && pickupLocation.coordinates.length === 2) {
+      // If we have pickup location, calculate estimated distance
+      // For now, use a simple estimate. In production, you'd use routing API
+      const pickupCoords = pickupLocation.coordinates; // [lng, lat]
+      
+      // If destination is provided, calculate distance
+      if (destinationLocation && destinationLocation.coordinates && destinationLocation.coordinates.length === 2) {
+        const destCoords = destinationLocation.coordinates; // [lng, lat]
+        distanceKm = getDistanceKm(pickupCoords[1], pickupCoords[0], destCoords[1], destCoords[0]);
+      } else {
+        // No destination - estimate average trip of 5km
+        distanceKm = 5;
+      }
+      
+      // Calculate price based on distance and driver's car type
+      pricing = calculateRidePrice(distanceKm, driver.carType || 'standard');
+    } else {
+      // No location data - use minimum fare
+      pricing = calculateRidePrice(0, driver.carType || 'standard');
+    }
+
     const ride = new Ride({
       rider: req.user._id,
       pickupAddress,
@@ -152,9 +196,14 @@ router.post('/book-driver', auth, async (req, res) => {
       needsHandicapSupport,
       needsBlindSupport,
       assignedDriver: driverId,
-      status: 'pending' // pending until driver accepts/declines
+      status: 'pending', // pending until driver accepts/declines
+      amount: pricing.totalPrice, // Store in øre
+      currency: 'nok',
+      estimatedDistance: distanceKm
     });
     await ride.save();
+
+    console.log(`Created ride ${ride._id}: ${distanceKm.toFixed(2)}km, ${driver.carType} car, ${pricing.totalPriceNOK} NOK`);
 
     // Notify the rider via email about booking request (we'll update once driver accepts)
     try {
@@ -187,7 +236,10 @@ router.post('/book-driver', auth, async (req, res) => {
         passengerCount: ride.passengerCount,
         needsBabySeat: ride.needsBabySeat,
         needsHandicapSupport: ride.needsHandicapSupport,
-        needsBlindSupport: ride.needsBlindSupport
+        needsBlindSupport: ride.needsBlindSupport,
+        estimatedPrice: pricing.totalPriceNOK,
+        estimatedDistance: distanceKm.toFixed(2),
+        currency: 'NOK'
       };
       if (io && driverSock) {
         io.to(driverSock).emit('rideRequest', payload);
