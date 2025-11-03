@@ -158,6 +158,10 @@ io.on('connection', (socket) => {
       if (dist <= radiusKm) nearby[driverId] = { latitude: loc.latitude, longitude: loc.longitude, distanceKm: dist };
     }
     console.log(`requestNearbyDrivers: from socket=${socket.id} at ${latitude},${longitude} found ${Object.keys(nearby).length} drivers`);
+    console.log(`  Total drivers in memory: ${Object.keys(driverLocations).length}, online: ${onlineDrivers.size}`);
+    if (Object.keys(nearby).length > 0) {
+      console.log(`  Nearby drivers:`, nearby);
+    }
     // Send only to the requesting socket
     socket.emit('driversUpdate', nearby);
   });
