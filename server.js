@@ -8,6 +8,7 @@ const authRoutes = require('./src/routes/auth');
 const rideRoutes = require('./src/routes/rides');
 const userRoutes = require('./src/routes/users');
 const paymentRoutes = require('./src/routes/payments');
+const carRoutes = require('./src/routes/cars');
 
 const app = express();
 app.use(cors());
@@ -36,6 +37,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/rides', rideRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/cars', carRoutes);
 
 app.get('/', (req, res) => res.send({ ok: true }));
 
