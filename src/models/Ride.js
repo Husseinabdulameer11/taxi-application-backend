@@ -20,14 +20,14 @@ const rideSchema = new Schema({
   passengerCount: { type: Number, default: 1 },
   needsBabySeat: { type: Boolean, default: false },
   needsHandicapSupport: { type: Boolean, default: false },
-  needsBlindSupport: { type: Boolean, default: false }
-  ,
+  needsBlindSupport: { type: Boolean, default: false },
   // Payment fields
   paymentStatus: { type: String, enum: ['pending', 'paid', 'failed'], default: 'pending' },
   stripePaymentIntentId: { type: String },
   amount: { type: Number }, // amount in smallest currency unit (e.g., øre/cents)
   currency: { type: String, default: 'nok' },
-  transactionId: { type: String }
+  transactionId: { type: String },
+  estimatedDistance: { type: Number } // distance in kilometers
 }, { timestamps: true });
 
 rideSchema.index({ pickupLocation: '2dsphere' });
