@@ -299,12 +299,33 @@ app.post('/webhook', bodyParser.raw({ type: 'application/json' }), (req, res) =>
           const rideId = pi.metadata && pi.metadata.rideId;
           if (rideId) {
             const Ride = require('./src/models/Ride');
-            const ride = await Ride.findById(rideId);
+            const ride = await Ride.findById(rideId).populate('assignedDriver rider');
             if (ride) {
               ride.paymentStatus = 'paid';
               ride.transactionId = pi.id;
               await ride.save();
               console.log(`Ride ${rideId} marked as paid (pi ${pi.id})`);
+              
+              // Emit rideStarted to notify driver that payment is confirmed and they can start navigation
+              if (ride.assignedDriver && ride.rider) {
+                const driverId = ride.assignedDriver._id.toString();
+                const riderId = ride.rider._id.toString();
+                
+                // Notify driver's socket to start navigation
+                const driverSocketId = driverSocketMap[driverId];
+                if (driverSocketId) {
+                  io.to(driverSocketId).emit('rideStarted', { 
+                    rideId: rideId, 
+                    driverId: driverId, 
+                    riderId: riderId,
+                    message: 'Payment confirmed. Navigate to pickup location.'
+                  });
+                  console.log(`Notified driver ${driverId} that ride ${rideId} is paid and ready to start`);
+                }
+                
+                // Also emit to ride room for rider
+                io.to(`ride_${rideId}`).emit('rideStarted', { rideId, driverId, riderId });
+              }
             }
           }
         } catch (e) {
