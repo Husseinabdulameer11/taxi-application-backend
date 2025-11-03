@@ -125,7 +125,14 @@ io.on('connection', (socket) => {
       console.log('driverLocationUpdate: missing fields', payload);
       return;
     }
-    if (!onlineDrivers.has(driverId)) return; // Only allow if driver is online
+    
+    // Auto-register driver as online if not already (in case driverOnline wasn't called first)
+    if (!onlineDrivers.has(driverId)) {
+      console.log(`Auto-registering driver ${driverId} as online via driverLocationUpdate`);
+      onlineDrivers.add(driverId);
+      driverSocketMap[driverId] = socket.id;
+    }
+    
     driverLocations[driverId] = { latitude, longitude, updatedAt: Date.now() };
     console.log(`driverLocationUpdate: ${driverId} -> ${latitude},${longitude}`);
 
