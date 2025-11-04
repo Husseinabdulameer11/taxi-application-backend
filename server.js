@@ -243,11 +243,21 @@ io.on('connection', (socket) => {
       if (ride.status !== 'pending' || ride.assignedDriver?.toString() !== driverId.toString()) return;
       ride.status = 'accepted';
       await ride.save();
+      
+      const rideIdStr = rideId.toString();
+      const riderIdStr = ride.rider.toString();
+      
+      console.log(`[acceptRide] About to emit rideAccepted to:`);
+      console.log(`  - Room: ride_${rideIdStr}`);
+      console.log(`  - Room: rider_${riderIdStr}`);
+      console.log(`  - Payload: { rideId: "${rideIdStr}", driverId: "${driverId}" }`);
+      
       // notify the rider (if connected to ride room)
-      io.to(`ride_${rideId}`).emit('rideAccepted', { rideId, driverId });
+      io.to(`ride_${rideIdStr}`).emit('rideAccepted', { rideId: rideIdStr, driverId });
       // Also notify rider directly via their user ID room
-      io.to(`rider_${ride.rider.toString()}`).emit('rideAccepted', { rideId, driverId });
-      console.log(`Driver ${driverId} accepted ride ${rideId}, notified rider ${ride.rider}`);
+      io.to(`rider_${riderIdStr}`).emit('rideAccepted', { rideId: rideIdStr, driverId });
+      
+      console.log(`[acceptRide] ✅ Driver ${driverId} accepted ride ${rideIdStr}, emitted to rider ${riderIdStr}`);
     } catch (err) {
       console.error('acceptRide handler error', err);
     }
