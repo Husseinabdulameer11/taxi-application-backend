@@ -4,6 +4,7 @@ const Car = require('../models/Car');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
 const multer = require('multer');
+const path = require('path');
 const { uploadBuffer } = require('../utils/gcs');
 
 // Multer memory storage for car image uploads
@@ -19,10 +20,9 @@ router.post('/upload', auth, upload.single('file'), async (req, res) => {
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'No file uploaded' });
     
-    // Generate unique filename for the car image
-    const timestamp = Date.now();
-    const ext = file.mimetype.split('/')[1] || 'jpg';
-    const dest = `cars/${req.user._id}_${timestamp}.${ext}`;
+    // Generate unique filename for the car image (similar to user avatars)
+    const ext = path.extname(file.originalname) || '.jpg';
+    const dest = `cars/${req.user._id}/${Date.now()}${ext}`;
     
     // Upload to Google Cloud Storage
     const publicUrl = await uploadBuffer(file.buffer, dest, file.mimetype);
