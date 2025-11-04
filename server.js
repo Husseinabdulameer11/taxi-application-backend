@@ -108,6 +108,14 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Rider identifies themselves (joins their socket room for notifications)
+  socket.on('riderOnline', (payload) => {
+    const { riderId } = payload || {};
+    if (!riderId) return;
+    socket.join(`rider_${riderId}`);
+    console.log(`Rider ${riderId} joined room rider_${riderId}`);
+  });
+
   // Driver explicitly goes offline (logout)
   socket.on('driverOffline', (payload) => {
     const { driverId } = payload || {};
@@ -237,7 +245,9 @@ io.on('connection', (socket) => {
       await ride.save();
       // notify the rider (if connected to ride room)
       io.to(`ride_${rideId}`).emit('rideAccepted', { rideId, driverId });
-      console.log(`Driver ${driverId} accepted ride ${rideId}`);
+      // Also notify rider directly via their user ID room
+      io.to(`rider_${ride.rider.toString()}`).emit('rideAccepted', { rideId, driverId });
+      console.log(`Driver ${driverId} accepted ride ${rideId}, notified rider ${ride.rider}`);
     } catch (err) {
       console.error('acceptRide handler error', err);
     }
