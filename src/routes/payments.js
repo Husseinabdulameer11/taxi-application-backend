@@ -9,12 +9,14 @@ const auth = require('../middleware/auth');
 router.post('/create-intent', auth, async (req, res) => {
   try {
   const { rideId, currency = 'nok' } = req.body;
-  // Set fixed price: 1000 (e.g., 10 NOK in cents)
-  const amount = 1000;
   if (!rideId) return res.status(400).json({ error: 'rideId is required' });
 
     const ride = await Ride.findById(rideId);
     if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    
+    // Use the ride's calculated amount (already in øre from ride creation)
+    const amount = ride.amount || 1000; // fallback to 1000 if not set
+    if (!amount) return res.status(400).json({ error: 'Ride amount not set' });
 
     // If this ride already has a PaymentIntent, return its client secret (idempotent)
     if (ride.stripePaymentIntentId) {
