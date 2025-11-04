@@ -30,14 +30,24 @@ function getBucket() {
 async function uploadBuffer(buffer, destinationPath, contentType = 'application/octet-stream') {
   const bucket = getBucket();
   const file = bucket.file(destinationPath);
-  const stream = file.createWriteStream({ metadata: { contentType } });
+  const stream = file.createWriteStream({ 
+    metadata: { 
+      contentType,
+      cacheControl: 'public, max-age=31536000'
+    }
+  });
 
   return new Promise((resolve, reject) => {
     stream.on('error', (err) => reject(err));
     stream.on('finish', async () => {
       try {
-        // Make the file public (optional). If you prefer private files, use signed URLs instead.
-        await file.makePublic();
+        // Try to make the file public, but don't fail if permissions are missing
+        try {
+          await file.makePublic();
+        } catch (makePublicErr) {
+          console.warn('Could not make file public (likely permission issue):', makePublicErr.message);
+          // Continue anyway - file may still be accessible if bucket has public access
+        }
         const publicUrl = `https://storage.googleapis.com/${bucket.name}/${encodeURIComponent(file.name)}`;
         resolve(publicUrl);
       } catch (err) {
