@@ -4,6 +4,7 @@
 const PRICING = {
   baseFare: 5000, // 50 NOK base fare
   pricePerKm: 1500, // 15 NOK per km (base rate)
+  waitingTimePerMinute: 300, // 3 NOK per minute waiting time
   
   // Car type multipliers
   carTypeMultipliers: {
@@ -26,17 +27,32 @@ const PRICING = {
 
 /**
  * Calculate ride price based on distance and car type
- * @param {number} distanceKm - Distance in kilometers
+ * @param {number} distanceKm - Distance in kilometers (pickup to destination)
  * @param {string} carType - Type of car (standard, comfort, xl, premium)
  * @param {object} options - Additional pricing options
+ * @param {number} options.driverToPickupKm - Distance from driver to pickup location
+ * @param {number} options.waitingMinutes - Waiting time in minutes
  * @returns {object} Pricing breakdown
  */
 function calculateRidePrice(distanceKm, carType = 'standard', options = {}) {
   const multiplier = PRICING.carTypeMultipliers[carType] || 1.0;
   
-  // Calculate base price
-  let distancePrice = distanceKm * PRICING.pricePerKm * multiplier;
-  let totalPrice = PRICING.baseFare + distancePrice;
+  // Calculate pickup to destination price
+  let tripDistancePrice = distanceKm * PRICING.pricePerKm * multiplier;
+  
+  // Add driver to pickup distance (charged at base rate, no multiplier)
+  let driverToPickupPrice = 0;
+  if (options.driverToPickupKm) {
+    driverToPickupPrice = options.driverToPickupKm * PRICING.pricePerKm;
+  }
+  
+  // Add waiting time charge
+  let waitingTimePrice = 0;
+  if (options.waitingMinutes) {
+    waitingTimePrice = options.waitingMinutes * PRICING.waitingTimePerMinute * multiplier;
+  }
+  
+  let totalPrice = PRICING.baseFare + tripDistancePrice + driverToPickupPrice + waitingTimePrice;
   
   // Apply surcharges if specified
   if (options.applyNightSurcharge) {
@@ -57,8 +73,12 @@ function calculateRidePrice(distanceKm, carType = 'standard', options = {}) {
   
   return {
     baseFare: PRICING.baseFare,
-    distancePrice: Math.round(distancePrice),
-    distanceKm: Math.round(distanceKm * 100) / 100,
+    tripDistancePrice: Math.round(tripDistancePrice),
+    tripDistanceKm: Math.round(distanceKm * 100) / 100,
+    driverToPickupPrice: Math.round(driverToPickupPrice),
+    driverToPickupKm: options.driverToPickupKm ? Math.round(options.driverToPickupKm * 100) / 100 : 0,
+    waitingTimePrice: Math.round(waitingTimePrice),
+    waitingMinutes: options.waitingMinutes || 0,
     carType,
     carTypeMultiplier: multiplier,
     totalPrice,
