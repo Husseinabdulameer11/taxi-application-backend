@@ -64,7 +64,7 @@ router.post('/confirm', auth, async (req, res) => {
 
     // If rideId provided and ride has stored intentId, prefer that
     let ride = null;
-    if (rideId) ride = await Ride.findById(rideId);
+    if (rideId) ride = await Ride.findById(rideId).populate('assignedDriver rider');
 
     let intentId = paymentIntentId;
     if (!intentId && ride && ride.stripePaymentIntentId) intentId = ride.stripePaymentIntentId;
@@ -77,12 +77,38 @@ router.post('/confirm', auth, async (req, res) => {
       // mark ride as paid
       const resolvedRideId = rideId || (pi.metadata && pi.metadata.rideId);
       if (resolvedRideId) {
-        const rideToUpdate = ride || await Ride.findById(resolvedRideId);
+        const rideToUpdate = ride || await Ride.findById(resolvedRideId).populate('assignedDriver rider');
         if (rideToUpdate) {
           rideToUpdate.paymentStatus = 'paid';
           rideToUpdate.transactionId = pi.id;
           rideToUpdate.stripePaymentIntentId = pi.id;
           await rideToUpdate.save();
+          
+          // Emit rideStarted event to driver (same logic as webhook)
+          const io = req.app.get('io');
+          const driverSocketMap = req.app.get('driverSocketMap');
+          
+          if (rideToUpdate.assignedDriver && rideToUpdate.rider && io && driverSocketMap) {
+            const driverId = rideToUpdate.assignedDriver._id.toString();
+            const riderId = rideToUpdate.rider._id.toString();
+            
+            // Notify driver's socket to start navigation
+            const driverSocketId = driverSocketMap[driverId];
+            if (driverSocketId) {
+              io.to(driverSocketId).emit('rideStarted', { 
+                rideId: resolvedRideId, 
+                driverId: driverId, 
+                riderId: riderId,
+                message: 'Payment confirmed. Navigate to pickup location.'
+              });
+              console.log(`[confirm] Notified driver ${driverId} that ride ${resolvedRideId} is paid and ready to start`);
+            } else {
+              console.log(`[confirm] Driver ${driverId} socket not found in map`);
+            }
+            
+            // Also emit to ride room for rider
+            io.to(`ride_${resolvedRideId}`).emit('rideStarted', { rideId: resolvedRideId, driverId, riderId });
+          }
         }
       }
       return res.json({ ok: true, status: pi.status, paymentIntentId: pi.id });
