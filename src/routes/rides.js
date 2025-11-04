@@ -362,11 +362,19 @@ router.post('/book-driver', auth, async (req, res) => {
         estimatedDistance: distanceKm.toFixed(2),
         currency: 'NOK'
       };
+      
+      console.log(`[book-driver] Attempting to emit rideRequest to driver ${driverId}`);
+      console.log(`[book-driver] driverSocketMap has driver? ${!!driverSock}, socketId: ${driverSock}`);
+      console.log(`[book-driver] Payload:`, JSON.stringify(payload, null, 2));
+      
       if (io && driverSock) {
         io.to(driverSock).emit('rideRequest', payload);
+        console.log(`[book-driver] ✅ Emitted rideRequest to socket ${driverSock}`);
+      } else {
+        console.log(`[book-driver] ❌ Cannot emit: io=${!!io}, driverSock=${driverSock}`);
       }
 
-      // Start a 30s timer; if driver doesn't accept/decline, mark as open and remove assigned driver
+      // Start a 60s timer; if driver doesn't accept/decline, mark as open and remove assigned driver
       setTimeout(async () => {
         try {
           const fresh = await Ride.findById(ride._id);
@@ -389,7 +397,7 @@ router.post('/book-driver', auth, async (req, res) => {
         } catch (timeoutErr) {
           console.error('Error handling ride request timeout', timeoutErr);
         }
-      }, 30000);
+      }, 60000);
     } catch (emitErr) {
       console.error('Error emitting rideRequest', emitErr);
     }
