@@ -74,6 +74,64 @@ router.get('/available', auth, async (req, res) => {
   }
 });
 
+// Get price estimate for a ride
+router.post('/estimate-price', auth, async (req, res) => {
+  try {
+    const {
+      driverId,
+      pickupLocation,
+      destinationLocation,
+      waitingMinutes
+    } = req.body;
+
+    if (!driverId) return res.status(400).json({ error: 'driverId is required' });
+    if (!pickupLocation || !pickupLocation.coordinates || pickupLocation.coordinates.length !== 2) {
+      return res.status(400).json({ error: 'Valid pickupLocation is required' });
+    }
+
+    // Fetch driver to get car type and location
+    const driver = await User.findById(driverId);
+    if (!driver || driver.role !== 'driver') {
+      return res.status(400).json({ error: 'Invalid driver' });
+    }
+
+    const pickupCoords = pickupLocation.coordinates; // [lng, lat]
+    
+    // Calculate driver to pickup distance
+    let driverToPickupKm = 0;
+    if (driver.location && driver.location.coordinates && driver.location.coordinates.length === 2) {
+      const driverCoords = driver.location.coordinates;
+      driverToPickupKm = getDistanceKm(driverCoords[1], driverCoords[0], pickupCoords[1], pickupCoords[0]);
+    }
+    
+    // Calculate pickup to destination distance
+    let tripDistanceKm = 5; // Default estimate
+    if (destinationLocation && destinationLocation.coordinates && destinationLocation.coordinates.length === 2) {
+      const destCoords = destinationLocation.coordinates;
+      tripDistanceKm = getDistanceKm(pickupCoords[1], pickupCoords[0], destCoords[1], destCoords[0]);
+    }
+    
+    // Calculate price
+    const pricing = calculateRidePrice(tripDistanceKm, driver.carType || 'standard', {
+      driverToPickupKm,
+      waitingMinutes: waitingMinutes || 0
+    });
+    
+    res.json({ 
+      estimate: pricing,
+      breakdown: {
+        baseFare: `${pricing.baseFare / 100} NOK`,
+        tripDistance: `${pricing.tripDistanceKm} km (${pricing.tripDistancePrice / 100} NOK)`,
+        driverToPickup: `${pricing.driverToPickupKm} km (${pricing.driverToPickupPrice / 100} NOK)`,
+        waitingTime: pricing.waitingMinutes > 0 ? `${pricing.waitingMinutes} min (${pricing.waitingTimePrice / 100} NOK)` : 'None',
+        total: `${pricing.totalPriceNOK} NOK`
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get ride details
 router.get('/:id', auth, async (req, res) => {
   try {
@@ -134,6 +192,62 @@ router.post('/:id/decline', auth, async (req, res) => {
   }
 });
 
+// Driver ends/completes a ride
+router.post('/:id/end', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'driver') return res.status(403).json({ error: 'Only drivers can end rides' });
+    const ride = await Ride.findById(req.params.id);
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (ride.assignedDriver.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'You are not assigned to this ride' });
+    }
+    if (ride.status !== 'in_progress' && ride.status !== 'accepted') {
+      return res.status(400).json({ error: 'Ride is not in progress' });
+    }
+    
+    ride.status = 'completed';
+    await ride.save();
+
+    // Emit socket event to notify the rider
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`rider_${ride.rider.toString()}`).emit('rideEnded', { rideId: ride._id });
+    }
+
+    res.json({ ride });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Rider cancels a pending ride
+router.post('/:id/cancel', auth, async (req, res) => {
+  try {
+    if (req.user.role !== 'rider') return res.status(403).json({ error: 'Only riders can cancel rides' });
+    const ride = await Ride.findById(req.params.id);
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    if (ride.rider.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'You can only cancel your own rides' });
+    }
+    if (ride.status !== 'pending') {
+      return res.status(400).json({ error: 'Ride cannot be cancelled at this stage' });
+    }
+    
+    ride.status = 'cancelled';
+    await ride.save();
+
+    // Emit socket event to notify the driver (if assigned)
+    const io = req.app.get('io');
+    if (io && ride.assignedDriver) {
+      io.to(`driver_${ride.assignedDriver.toString()}`).emit('rideCancelled', { rideId: ride._id });
+    }
+
+    res.json({ ride });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Rider books a specific driver directly. Creates a ride and assigns the driver.
 router.post('/book-driver', auth, async (req, res) => {
   try {
@@ -161,14 +275,19 @@ router.post('/book-driver', auth, async (req, res) => {
 
     // Calculate distance and price
     let distanceKm = 0;
+    let driverToPickupKm = 0;
     let pricing = null;
     
     if (pickupLocation && pickupLocation.coordinates && pickupLocation.coordinates.length === 2) {
-      // If we have pickup location, calculate estimated distance
-      // For now, use a simple estimate. In production, you'd use routing API
       const pickupCoords = pickupLocation.coordinates; // [lng, lat]
       
-      // If destination is provided, calculate distance
+      // Calculate driver to pickup distance if driver has location
+      if (driver.location && driver.location.coordinates && driver.location.coordinates.length === 2) {
+        const driverCoords = driver.location.coordinates; // [lng, lat]
+        driverToPickupKm = getDistanceKm(driverCoords[1], driverCoords[0], pickupCoords[1], pickupCoords[0]);
+      }
+      
+      // If destination is provided, calculate pickup to destination distance
       if (destinationLocation && destinationLocation.coordinates && destinationLocation.coordinates.length === 2) {
         const destCoords = destinationLocation.coordinates; // [lng, lat]
         distanceKm = getDistanceKm(pickupCoords[1], pickupCoords[0], destCoords[1], destCoords[0]);
@@ -177,8 +296,10 @@ router.post('/book-driver', auth, async (req, res) => {
         distanceKm = 5;
       }
       
-      // Calculate price based on distance and driver's car type
-      pricing = calculateRidePrice(distanceKm, driver.carType || 'standard');
+      // Calculate price based on distances and driver's car type
+      pricing = calculateRidePrice(distanceKm, driver.carType || 'standard', {
+        driverToPickupKm: driverToPickupKm
+      });
     } else {
       // No location data - use minimum fare
       pricing = calculateRidePrice(0, driver.carType || 'standard');
