@@ -111,8 +111,8 @@ router.post('/estimate-price', auth, async (req, res) => {
       console.log(`[estimate-price] Pickup location: [${pickupCoords[0]}, ${pickupCoords[1]}]`);
       console.log(`[estimate-price] Driver to pickup distance: ${driverToPickupKm.toFixed(2)} km`);
     } else {
-      console.log(`[estimate-price] ⚠️ Driver ${driverId} has no real-time location data! They may be offline.`);
-      return res.status(400).json({ error: 'Driver location not available. Driver may be offline.' });
+      console.log(`[estimate-price] ⚠️ Driver ${driverId} has no real-time location data! Using 0 for pickup distance.`);
+      driverToPickupKm = 0; // Default to 0 if driver location unavailable
     }
     
     // Calculate pickup to destination distance
