@@ -120,6 +120,9 @@ router.post('/estimate-price', auth, async (req, res) => {
     if (destinationLocation && destinationLocation.coordinates && destinationLocation.coordinates.length === 2) {
       const destCoords = destinationLocation.coordinates;
       tripDistanceKm = getDistanceKm(pickupCoords[1], pickupCoords[0], destCoords[1], destCoords[0]);
+      console.log(`[estimate-price] Pickup to destination distance: ${tripDistanceKm.toFixed(2)} km`);
+    } else {
+      console.log(`[estimate-price] No destination provided, using default 5 km`);
     }
     
     // Calculate price
@@ -127,6 +130,8 @@ router.post('/estimate-price', auth, async (req, res) => {
       driverToPickupKm,
       waitingMinutes: waitingMinutes || 0
     });
+    
+    console.log(`[estimate-price] Final calculation: trip=${tripDistanceKm.toFixed(2)}km, pickup=${driverToPickupKm.toFixed(2)}km, total=${pricing.totalPriceNOK} NOK`);
     
     res.json({ 
       estimate: pricing,
@@ -278,6 +283,9 @@ router.post('/book-driver', auth, async (req, res) => {
 
     if (!driverId) return res.status(400).json({ error: 'driverId is required' });
 
+    // Get driver location from request (client sends this since they have it on the map)
+    const driverLocation = req.body.driverLocation; // { latitude, longitude }
+
     // Fetch driver to get car type
     const driver = await User.findById(driverId);
     if (!driver || driver.role !== 'driver') {
@@ -292,17 +300,16 @@ router.post('/book-driver', auth, async (req, res) => {
     if (pickupLocation && pickupLocation.coordinates && pickupLocation.coordinates.length === 2) {
       const pickupCoords = pickupLocation.coordinates; // [lng, lat]
       
-      // Get driver's real-time location from in-memory socket data (not database)
-      const driverLocations = req.app.get('driverLocations') || {};
-      const driverLiveLocation = driverLocations[driverId];
-      
-      // Calculate driver to pickup distance using real-time location
-      if (driverLiveLocation && driverLiveLocation.latitude != null && driverLiveLocation.longitude != null) {
-        const { latitude, longitude } = driverLiveLocation;
+      // Calculate driver to pickup distance using location from client
+      if (driverLocation && driverLocation.latitude != null && driverLocation.longitude != null) {
+        const { latitude, longitude } = driverLocation;
         driverToPickupKm = getDistanceKm(latitude, longitude, pickupCoords[1], pickupCoords[0]);
-        console.log(`[book-driver] Driver ${driverId} to pickup distance: ${driverToPickupKm.toFixed(2)} km`);
+        console.log(`[book-driver] Driver location from client: [${longitude}, ${latitude}]`);
+        console.log(`[book-driver] Pickup location: [${pickupCoords[0]}, ${pickupCoords[1]}]`);
+        console.log(`[book-driver] Driver to pickup distance: ${driverToPickupKm.toFixed(2)} km`);
       } else {
-        console.log(`[book-driver] ⚠️ Driver ${driverId} has no real-time location!`);
+        console.log(`[book-driver] ⚠️ No driver location provided by client, using 0 for pickup distance`);
+        driverToPickupKm = 0;
       }
       
       // If destination is provided, calculate pickup to destination distance
