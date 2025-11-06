@@ -62,9 +62,10 @@ const activeRides = {}; // { rideId: { driverId, riderId, status } }
 const onlineDrivers = new Set(); // Track currently logged-in (connected) drivers
 const driverSocketMap = {}; // Map driverId -> socket.id
 
-// also expose driverSocketMap and onlineDrivers so routes can access them
+// also expose driverSocketMap, onlineDrivers, and driverLocations so routes can access them
 app.set('driverSocketMap', driverSocketMap);
 app.set('onlineDrivers', onlineDrivers);
+app.set('driverLocations', driverLocations);
 
 function getDistanceKm(lat1, lon1, lat2, lon2) {
   const R = 6371; // km
