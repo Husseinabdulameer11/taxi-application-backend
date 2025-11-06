@@ -97,11 +97,22 @@ router.post('/estimate-price', auth, async (req, res) => {
 
     const pickupCoords = pickupLocation.coordinates; // [lng, lat]
     
+    // Get driver's real-time location from in-memory socket data (not database)
+    const driverLocations = req.app.get('driverLocations') || {};
+    const driverLiveLocation = driverLocations[driverId];
+    
     // Calculate driver to pickup distance
     let driverToPickupKm = 0;
-    if (driver.location && driver.location.coordinates && driver.location.coordinates.length === 2) {
-      const driverCoords = driver.location.coordinates;
-      driverToPickupKm = getDistanceKm(driverCoords[1], driverCoords[0], pickupCoords[1], pickupCoords[0]);
+    if (driverLiveLocation && driverLiveLocation.latitude != null && driverLiveLocation.longitude != null) {
+      // Use real-time socket location
+      const { latitude, longitude } = driverLiveLocation;
+      driverToPickupKm = getDistanceKm(latitude, longitude, pickupCoords[1], pickupCoords[0]);
+      console.log(`[estimate-price] Driver ${driverId} real-time location: [${longitude}, ${latitude}]`);
+      console.log(`[estimate-price] Pickup location: [${pickupCoords[0]}, ${pickupCoords[1]}]`);
+      console.log(`[estimate-price] Driver to pickup distance: ${driverToPickupKm.toFixed(2)} km`);
+    } else {
+      console.log(`[estimate-price] ⚠️ Driver ${driverId} has no real-time location data! They may be offline.`);
+      return res.status(400).json({ error: 'Driver location not available. Driver may be offline.' });
     }
     
     // Calculate pickup to destination distance
