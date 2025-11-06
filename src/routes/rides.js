@@ -316,6 +316,8 @@ router.post('/book-driver', auth, async (req, res) => {
       if (destinationLocation && destinationLocation.coordinates && destinationLocation.coordinates.length === 2) {
         const destCoords = destinationLocation.coordinates; // [lng, lat]
         distanceKm = getDistanceKm(pickupCoords[1], pickupCoords[0], destCoords[1], destCoords[0]);
+        console.log(`[book-driver] Destination location: [${destCoords[0]}, ${destCoords[1]}]`);
+        console.log(`[book-driver] Pickup to destination distance: ${distanceKm.toFixed(2)} km`);
       } else {
         // No destination - estimate average trip of 5km
         distanceKm = 5;
@@ -325,6 +327,8 @@ router.post('/book-driver', auth, async (req, res) => {
       pricing = calculateRidePrice(distanceKm, driver.carType || 'standard', {
         driverToPickupKm: driverToPickupKm
       });
+      
+      console.log(`[book-driver] Final calculation: tripKm=${distanceKm.toFixed(2)}, pickupKm=${driverToPickupKm.toFixed(2)}, carType=${driver.carType || 'standard'}, total=${pricing.totalPriceNOK} NOK`);
     } else {
       // No location data - use minimum fare
       pricing = calculateRidePrice(0, driver.carType || 'standard');
