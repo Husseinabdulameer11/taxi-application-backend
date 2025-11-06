@@ -292,10 +292,17 @@ router.post('/book-driver', auth, async (req, res) => {
     if (pickupLocation && pickupLocation.coordinates && pickupLocation.coordinates.length === 2) {
       const pickupCoords = pickupLocation.coordinates; // [lng, lat]
       
-      // Calculate driver to pickup distance if driver has location
-      if (driver.location && driver.location.coordinates && driver.location.coordinates.length === 2) {
-        const driverCoords = driver.location.coordinates; // [lng, lat]
-        driverToPickupKm = getDistanceKm(driverCoords[1], driverCoords[0], pickupCoords[1], pickupCoords[0]);
+      // Get driver's real-time location from in-memory socket data (not database)
+      const driverLocations = req.app.get('driverLocations') || {};
+      const driverLiveLocation = driverLocations[driverId];
+      
+      // Calculate driver to pickup distance using real-time location
+      if (driverLiveLocation && driverLiveLocation.latitude != null && driverLiveLocation.longitude != null) {
+        const { latitude, longitude } = driverLiveLocation;
+        driverToPickupKm = getDistanceKm(latitude, longitude, pickupCoords[1], pickupCoords[0]);
+        console.log(`[book-driver] Driver ${driverId} to pickup distance: ${driverToPickupKm.toFixed(2)} km`);
+      } else {
+        console.log(`[book-driver] ⚠️ Driver ${driverId} has no real-time location!`);
       }
       
       // If destination is provided, calculate pickup to destination distance
