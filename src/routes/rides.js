@@ -182,9 +182,58 @@ router.post('/:id/accept', auth, async (req, res) => {
     if (req.user.role !== 'driver') return res.status(403).json({ error: 'Only drivers can accept rides' });
     const ride = await Ride.findById(req.params.id);
     if (!ride || ride.status !== 'open') return res.status(400).json({ error: 'Ride not available' });
+    
+    // Calculate price if not already set
+    if (!ride.amount && ride.pickupLocation && ride.destinationLocation) {
+      const driver = await User.findById(req.user._id);
+      const pickupCoords = ride.pickupLocation.coordinates; // [lng, lat]
+      const destCoords = ride.destinationLocation.coordinates; // [lng, lat]
+      
+      // Get driver's real-time location
+      const driverLocations = req.app.get('driverLocations') || {};
+      const driverLiveLocation = driverLocations[req.user._id.toString()];
+      
+      let driverToPickupKm = 0;
+      if (driverLiveLocation && driverLiveLocation.latitude != null && driverLiveLocation.longitude != null) {
+        const { latitude, longitude } = driverLiveLocation;
+        driverToPickupKm = getDistanceKm(latitude, longitude, pickupCoords[1], pickupCoords[0]);
+      }
+      
+      const tripDistanceKm = getDistanceKm(pickupCoords[1], pickupCoords[0], destCoords[1], destCoords[0]);
+      const pricing = calculateRidePrice(tripDistanceKm, driver.carType || 'standard', { driverToPickupKm });
+      
+      ride.amount = pricing.totalPrice; // Store in øre
+      ride.currency = 'nok';
+      ride.estimatedDistance = tripDistanceKm;
+      
+      console.log(`[accept-ride] Calculated price for ride ${ride._id}: ${pricing.totalPriceNOK} NOK`);
+    }
+    
     ride.status = 'accepted';
     ride.assignedDriver = req.user._id;
     await ride.save();
+
+    // Populate the ride with driver info for the response
+    const populatedRide = await Ride.findById(ride._id)
+      .populate('assignedDriver', 'name phone email carType')
+      .populate('rider', 'name phone email');
+
+    // Notify the rider via socket
+    const io = req.app.get('io');
+    if (io && ride.rider) {
+      io.to(`rider_${ride.rider.toString()}`).emit('rideAccepted', {
+        rideId: ride._id,
+        driver: {
+          id: req.user._id,
+          name: req.user.name,
+          phone: req.user.phone,
+          carType: req.user.carType
+        },
+        amount: ride.amount,
+        currency: ride.currency || 'nok'
+      });
+      console.log(`[accept-ride] Emitted rideAccepted to rider ${ride.rider.toString()}`);
+    }
 
     // Notify the rider via email
     try {
@@ -201,7 +250,8 @@ router.post('/:id/accept', auth, async (req, res) => {
     } catch (mailErr) {
       console.error('Failed to send acceptance email:', mailErr);
     }
-    res.json({ ride });
+    
+    res.json({ ride: populatedRide });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
