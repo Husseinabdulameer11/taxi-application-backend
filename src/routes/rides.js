@@ -69,6 +69,27 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
+// Get current user's rides (for both riders and drivers)
+router.get('/my-rides', auth, async (req, res) => {
+  try {
+    let query = {};
+    if (req.user.role === 'rider') {
+      query.rider = req.user._id;
+    } else if (req.user.role === 'driver') {
+      query.assignedDriver = req.user._id;
+    }
+    
+    const rides = await Ride.find(query)
+      .populate('rider', 'name phone email')
+      .populate('assignedDriver', 'name phone email carType')
+      .sort({ createdAt: -1 });
+      
+    res.json({ rides });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // List available rides for drivers with optional distance filter
 router.get('/available', auth, async (req, res) => {
   try {
@@ -275,6 +296,42 @@ router.post('/:id/decline', auth, async (req, res) => {
   }
 });
 
+// Rider cancels their ride request
+router.post('/:id/cancel', auth, async (req, res) => {
+  try {
+    const ride = await Ride.findById(req.params.id);
+    if (!ride) return res.status(404).json({ error: 'Ride not found' });
+    
+    // Only the rider who created it can cancel it
+    if (ride.rider.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Only the ride creator can cancel it' });
+    }
+    
+    // Can only cancel if not yet in progress or completed
+    if (['in_progress', 'completed'].includes(ride.status)) {
+      return res.status(400).json({ error: 'Cannot cancel a ride that is in progress or completed' });
+    }
+    
+    ride.status = 'cancelled';
+    await ride.save();
+    
+    // Notify driver if one was assigned
+    if (ride.assignedDriver) {
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`driver_${ride.assignedDriver.toString()}`).emit('rideCancelled', {
+          rideId: ride._id,
+          message: 'Rider cancelled the ride'
+        });
+      }
+    }
+    
+    res.json({ ok: true, ride });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Driver ends/completes a ride
 router.post('/:id/end', auth, async (req, res) => {
   try {
@@ -291,10 +348,11 @@ router.post('/:id/end', auth, async (req, res) => {
     ride.status = 'completed';
     await ride.save();
 
-    // Emit socket event to notify the rider
+    // Emit socket event to notify both rider and driver
     const io = req.app.get('io');
     if (io) {
       io.to(`rider_${ride.rider.toString()}`).emit('rideEnded', { rideId: ride._id });
+      io.to(`driver_${ride.assignedDriver.toString()}`).emit('rideEnded', { rideId: ride._id });
     }
 
     res.json({ ride });
