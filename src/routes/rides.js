@@ -46,6 +46,23 @@ router.post('/', auth, async (req, res) => {
       needsBlindSupport
     });
     await ride.save();
+    
+    // Emit socket event for new ride request
+    const io = req.app.get('io');
+    if (io) {
+      io.emit('newRideRequest', { 
+        rideId: ride._id,
+        pickupAddress,
+        destinationAddress,
+        passengerCount,
+        needsBabySeat,
+        needsHandicapSupport,
+        needsBlindSupport,
+        pickupLocation
+      });
+      console.log(`Emitted newRideRequest event for ride ${ride._id}`);
+    }
+    
     res.json({ ride });
   } catch (err) {
     res.status(500).json({ error: err.message });
