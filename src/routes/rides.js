@@ -361,34 +361,6 @@ router.post('/:id/end', auth, async (req, res) => {
   }
 });
 
-// Rider cancels a pending ride
-router.post('/:id/cancel', auth, async (req, res) => {
-  try {
-    if (req.user.role !== 'rider') return res.status(403).json({ error: 'Only riders can cancel rides' });
-    const ride = await Ride.findById(req.params.id);
-    if (!ride) return res.status(404).json({ error: 'Ride not found' });
-    if (ride.rider.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ error: 'You can only cancel your own rides' });
-    }
-    if (ride.status !== 'pending') {
-      return res.status(400).json({ error: 'Ride cannot be cancelled at this stage' });
-    }
-    
-    ride.status = 'cancelled';
-    await ride.save();
-
-    // Emit socket event to notify the driver (if assigned)
-    const io = req.app.get('io');
-    if (io && ride.assignedDriver) {
-      io.to(`driver_${ride.assignedDriver.toString()}`).emit('rideCancelled', { rideId: ride._id });
-    }
-
-    res.json({ ride });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // Rider books a specific driver directly. Creates a ride and assigns the driver.
 router.post('/book-driver', auth, async (req, res) => {
   try {
